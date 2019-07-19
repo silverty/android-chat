@@ -110,7 +110,7 @@ public class GroupViewModel extends ViewModel implements AppScopeViewModel, OnGr
                 ChatManager.Instance().uploadMedia(content, MessageContentMediaType.PORTRAIT.getValue(), new GeneralCallback2() {
                     @Override
                     public void onSuccess(String result) {
-                        ChatManager.Instance().createGroup(null, finalGroupName, result, selectedIds, Arrays.asList(0), null, new GeneralCallback2() {
+                        ChatManager.Instance().createGroup(null, finalGroupName, result, GroupInfo.GroupType.Normal, selectedIds, Arrays.asList(0), null, new GeneralCallback2() {
                             @Override
                             public void onSuccess(String groupId) {
                                 groupLiveData.setValue(new OperateResult<>(groupId, 0));
@@ -129,7 +129,7 @@ public class GroupViewModel extends ViewModel implements AppScopeViewModel, OnGr
                     }
                 });
             } else {
-                ChatManager.Instance().createGroup(null, finalGroupName, null, selectedIds, Arrays.asList(0), null, new GeneralCallback2() {
+                ChatManager.Instance().createGroup(null, finalGroupName, null, GroupInfo.GroupType.Normal, selectedIds, Arrays.asList(0), null, new GeneralCallback2() {
                     @Override
                     public void onSuccess(String groupId) {
                         groupLiveData.setValue(new OperateResult<>(groupId, 0));
@@ -287,6 +287,22 @@ public class GroupViewModel extends ViewModel implements AppScopeViewModel, OnGr
     public MutableLiveData<Boolean> quitGroup(String groupId, List<Integer> lines) {
         MutableLiveData<Boolean> result = new MutableLiveData<>();
         ChatManager.Instance().quitGroup(groupId, lines, null, new GeneralCallback() {
+            @Override
+            public void onSuccess() {
+                result.setValue(true);
+            }
+
+            @Override
+            public void onFail(int errorCode) {
+                result.setValue(false);
+            }
+        });
+        return result;
+    }
+
+    public MutableLiveData<Boolean> dismissGroup(String groupId, List<Integer> lines) {
+        MutableLiveData<Boolean> result = new MutableLiveData<>();
+        ChatManager.Instance().dismissGroup(groupId, lines, null, new GeneralCallback() {
             @Override
             public void onSuccess() {
                 result.setValue(true);

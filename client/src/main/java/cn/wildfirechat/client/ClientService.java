@@ -268,11 +268,6 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
         private ProtoMessage convertMessage(cn.wildfirechat.message.Message msg) {
             ProtoMessage protoMessage = new ProtoMessage();
 
-            msg.sender = accountInfo.userName;
-            msg.status = MessageStatus.Sending;
-            msg.serverTime = System.currentTimeMillis();
-            msg.direction = MessageDirection.Send;
-
             if (msg.conversation != null) {
                 protoMessage.setConversationType(msg.conversation.type.ordinal());
                 protoMessage.setTarget(msg.conversation.target);
@@ -503,7 +498,7 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
         public void setMediaMessagePlayed(long messageId) {
             try {
                 Message message = getMessage(messageId);
-                if (message != null || message.direction == MessageDirection.Send || !(message.content instanceof MediaMessageContent)) {
+                if (message == null || message.direction == MessageDirection.Send || !(message.content instanceof MediaMessageContent)) {
                     return;
                 }
                 ProtoLogic.setMediaMessagePlayed(messageId);
@@ -533,8 +528,8 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
         }
 
         @Override
-        public void searchUser(String keyword, final ISearchUserCallback callback) throws RemoteException {
-            ProtoLogic.searchUser(keyword, new ProtoLogic.ISearchUserCallback() {
+        public void searchUser(String keyword, boolean fuzzy, final ISearchUserCallback callback) throws RemoteException {
+            ProtoLogic.searchUser(keyword, fuzzy, 0, new ProtoLogic.ISearchUserCallback() {
                 @Override
                 public void onSuccess(ProtoUserInfo[] userInfos) {
                     List<UserInfo> out = new ArrayList<>();
@@ -1115,12 +1110,12 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
         }
 
         @Override
-        public void createGroup(String groupId, String groupName, String groupPortrait, List<String> memberIds, int[] notifyLines, MessagePayload notifyMsg, final IGeneralCallback2 callback) throws RemoteException {
+        public void createGroup(String groupId, String groupName, String groupPortrait, int groupType, List<String> memberIds, int[] notifyLines, MessagePayload notifyMsg, final IGeneralCallback2 callback) throws RemoteException {
             String[] memberArray = new String[memberIds.size()];
             for (int i = 0; i < memberIds.size(); i++) {
                 memberArray[i] = memberIds.get(i);
             }
-            ProtoLogic.createGroup(groupId, groupName, groupPortrait, memberArray, notifyLines, notifyMsg == null ? null : notifyMsg.toProtoContent(), new ProtoLogic.IGeneralCallback2() {
+            ProtoLogic.createGroup(groupId, groupName, groupPortrait, groupType, memberArray, notifyLines, notifyMsg == null ? null : notifyMsg.toProtoContent(), new ProtoLogic.IGeneralCallback2() {
                 @Override
                 public void onSuccess(String s) {
                     try {
@@ -1223,6 +1218,7 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
             ProtoLogic.dismissGroup(groupId, notifyLines, notifyMsg == null ? null : notifyMsg.toProtoContent(), new ProtoLogic.IGeneralCallback() {
                 @Override
                 public void onSuccess() {
+                    // side
                     try {
                         callback.onSuccess();
                     } catch (RemoteException e) {
@@ -1319,6 +1315,33 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
         @Override
         public void transferGroup(String groupId, String newOwner, int[] notifyLines, MessagePayload notifyMsg, final IGeneralCallback callback) throws RemoteException {
             ProtoLogic.transferGroup(groupId, newOwner, notifyLines, notifyMsg == null ? null : notifyMsg.toProtoContent(), new ProtoLogic.IGeneralCallback() {
+                @Override
+                public void onSuccess() {
+                    try {
+                        callback.onSuccess();
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                @Override
+                public void onFailure(int i) {
+                    try {
+                        callback.onFailure(i);
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void setGroupManager(String groupId, boolean isSet, List<String> memberIds, int[] notifyLines, MessagePayload notifyMsg, IGeneralCallback callback) throws RemoteException {
+            String[] memberArray = new String[memberIds.size()];
+            for (int i = 0; i < memberIds.size(); i++) {
+                memberArray[i] = memberIds.get(i);
+            }
+            ProtoLogic.setGroupManager(groupId, isSet, memberArray, notifyLines, notifyMsg == null ? null : notifyMsg.toProtoContent(), new ProtoLogic.IGeneralCallback() {
                 @Override
                 public void onSuccess() {
                     try {
@@ -1509,6 +1532,10 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
         groupInfo.memberCount = protoGroupInfo.getMemberCount();
         groupInfo.extra = protoGroupInfo.getExtra();
         groupInfo.updateDt = protoGroupInfo.getUpdateDt();
+        groupInfo.mute = protoGroupInfo.getMute();
+        groupInfo.joinType = protoGroupInfo.getJoinType();
+        groupInfo.privateChat = protoGroupInfo.getPrivateChat();
+        groupInfo.searchable = protoGroupInfo.getSearchable();
         return groupInfo;
     }
 
@@ -1945,6 +1972,9 @@ public class ClientService extends Service implements SdtLogic.ICallBack,
 
     @Override
     public void onFriendListUpdated(String[] friendList) {
+        if (friendList == null || friendList.length == 0) {
+            return;
+        }
         handler.post(() -> {
             int i = onFriendUpdateListenerRemoteCallbackList.beginBroadcast();
             IOnFriendUpdateListener listener;

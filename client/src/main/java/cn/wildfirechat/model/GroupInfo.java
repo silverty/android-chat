@@ -45,6 +45,19 @@ public class GroupInfo implements Parcelable {
     public String extra;
     public long updateDt;
 
+
+    //0 正常；1 全局禁言
+    public int mute;
+
+    //在group type为Restricted时，0 开发加入权限（群成员可以拉人，用户也可以主动加入）；1 只能群成员拉人入群；2 只能群管理拉人入群
+    public int joinType;
+
+    //是否运行群中普通成员私聊。0 运行，1不允许
+    public int privateChat;
+
+    //是否可以搜索到该群，功能暂未实现
+    public int searchable;
+
     public GroupInfo() {
     }
 
@@ -64,6 +77,10 @@ public class GroupInfo implements Parcelable {
         dest.writeInt(this.memberCount);
         dest.writeString(this.extra);
         dest.writeLong(this.updateDt);
+        dest.writeInt(this.mute);
+        dest.writeInt(this.joinType);
+        dest.writeInt(this.privateChat);
+        dest.writeInt(this.searchable);
     }
 
     protected GroupInfo(Parcel in) {
@@ -76,6 +93,10 @@ public class GroupInfo implements Parcelable {
         this.memberCount = in.readInt();
         this.extra = in.readString();
         this.updateDt = in.readLong();
+        this.mute = in.readInt();
+        this.joinType = in.readInt();
+        this.privateChat = in.readInt();
+        this.searchable = in.readInt();
     }
 
     public static final Creator<GroupInfo> CREATOR = new Creator<GroupInfo>() {

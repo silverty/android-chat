@@ -6,12 +6,13 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import cn.wildfire.chat.kit.third.utils.UIUtils;
 import cn.wildfirechat.message.Message;
+import cn.wildfirechat.message.notification.DismissGroupNotificationContent;
+import cn.wildfirechat.message.notification.KickoffGroupMemberNotificationContent;
+import cn.wildfirechat.message.notification.QuitGroupNotificationContent;
 import cn.wildfirechat.model.Conversation;
 import cn.wildfirechat.model.ConversationInfo;
 import cn.wildfirechat.model.GroupInfo;
@@ -24,6 +25,7 @@ import cn.wildfirechat.remote.OnConversationInfoUpdateListener;
 import cn.wildfirechat.remote.OnGroupInfoUpdateListener;
 import cn.wildfirechat.remote.OnRecallMessageListener;
 import cn.wildfirechat.remote.OnReceiveMessageListener;
+import cn.wildfirechat.remote.OnRemoveConversationListener;
 import cn.wildfirechat.remote.OnSendMessageListener;
 import cn.wildfirechat.remote.OnSettingUpdateListener;
 import cn.wildfirechat.remote.RemoveMessageListener;
@@ -40,7 +42,10 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
         RemoveMessageListener,
         OnSettingUpdateListener,
         OnGroupInfoUpdateListener,
-        OnConversationInfoUpdateListener, OnConnectionStatusChangeListener, OnClearMessageListener {
+        OnConversationInfoUpdateListener,
+        OnRemoveConversationListener,
+        OnConnectionStatusChangeListener,
+        OnClearMessageListener {
     private MutableLiveData<ConversationInfo> conversationInfoLiveData;
     private MutableLiveData<Conversation> conversationRemovedLiveData;
     private MutableLiveData<UnreadCount> unreadCountLiveData;
@@ -63,6 +68,7 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
         ChatManager.Instance().addRemoveMessageListener(this);
         ChatManager.Instance().addGroupInfoUpdateListener(this);
         ChatManager.Instance().addClearMessageListener(this);
+        ChatManager.Instance().addRemoveConversationListener(this);
     }
 
     @Override
@@ -77,6 +83,7 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
         ChatManager.Instance().removeRemoveMessageListener(this);
         ChatManager.Instance().removeGroupInfoUpdateListener(this);
         ChatManager.Instance().removeClearMessageListener(this);
+        ChatManager.Instance().removeRemoveConversationListener(this);
     }
 
     public LiveData<List<ConversationInfo>> getConversationListAsync(List<Conversation.ConversationType> conversationTypes, List<Integer> lines) {
@@ -116,7 +123,6 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
     public MutableLiveData<UnreadCount> unreadCountLiveData() {
         if (unreadCountLiveData == null) {
             unreadCountLiveData = new MutableLiveData<>();
-            unreadCountMap = new HashMap<>();
         }
 
         loadUnreadCount();
@@ -127,34 +133,26 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
         return connectionStatusLiveData;
     }
 
-    private Map<Conversation, UnreadCount> unreadCountMap;
 
     private void loadUnreadCount() {
         ChatManager.Instance().getWorkHandler().post(() -> {
             List<ConversationInfo> conversations = ChatManager.Instance().getConversationList(types, lines);
             if (conversations != null) {
+                UnreadCount unreadCount = new UnreadCount();
                 for (ConversationInfo info : conversations) {
-                    unreadCountMap.put(info.conversation, info.unreadCount);
+                    unreadCount.unread += info.unreadCount.unread;
+                    unreadCount.unreadMention += info.unreadCount.unreadMention;
+                    unreadCount.unreadMentionAll += info.unreadCount.unreadMentionAll;
                 }
-                postUnreadCount();
+                postUnreadCount(unreadCount);
             }
         });
     }
 
-    private void postUnreadCount() {
+    private void postUnreadCount(UnreadCount unreadCount) {
         if (unreadCountLiveData == null) {
             return;
         }
-        UnreadCount unreadCount = new UnreadCount();
-        if (unreadCountMap.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<Conversation, UnreadCount> entry : unreadCountMap.entrySet()) {
-            unreadCount.unread += entry.getValue().unread;
-            unreadCount.unreadMention += entry.getValue().unreadMention;
-            unreadCount.unreadMentionAll += entry.getValue().unreadMentionAll;
-        }
-
         unreadCountLiveData.postValue(unreadCount);
     }
 
@@ -167,10 +165,20 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
                 }
                 Conversation conversation = message.conversation;
                 if (types.contains(conversation.type) && lines.contains(conversation.line)) {
-                    ConversationInfo conversationInfo = ChatManager.Instance().getConversation(message.conversation);
-                    postConversationInfo(conversationInfo);
+                    ChatManager.Instance().getWorkHandler().post(() -> {
+                        String uid = ChatManager.Instance().getUserId();
+                        if ((message.content instanceof QuitGroupNotificationContent && ((QuitGroupNotificationContent) message.content).operator.equals(uid))
+                                || (message.content instanceof KickoffGroupMemberNotificationContent && ((KickoffGroupMemberNotificationContent) message.content).kickedMembers.contains(uid))
+                                || message.content instanceof DismissGroupNotificationContent) {
+                            // do nothing
+                        } else {
+                            ConversationInfo conversationInfo = ChatManager.Instance().getConversation(message.conversation);
+                            postConversationInfo(conversationInfo);
+                        }
+                    });
                 }
             }
+            loadUnreadCount();
         }
     }
 
@@ -181,6 +189,7 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
             ConversationInfo conversationInfo = ChatManager.Instance().getConversation(message.conversation);
             postConversationInfo(conversationInfo);
         }
+        loadUnreadCount();
     }
 
 
@@ -223,14 +232,14 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
             Log.e(ConversationListViewModel.class.getSimpleName(), "this conversationListViewModel can not remove the target conversation");
             return;
         }
-        if (conversationRemovedLiveData != null) {
-            conversationRemovedLiveData.setValue(conversationInfo.conversation);
-        }
+        ChatManager.Instance().clearUnreadStatus(conversation);
         ChatManager.Instance().removeConversation(conversationInfo.conversation, false);
+        loadUnreadCount();
     }
 
     public void clearMessages(Conversation conversation) {
         ChatManager.Instance().clearMessages(conversation);
+        loadUnreadCount();
     }
 
     public void unSubscribeChannel(ConversationInfo conversationInfo) {
@@ -259,11 +268,8 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
         if (unreadCount.unread == 0 && unreadCount.unreadMentionAll == 0 && unreadCount.unreadMention == 0) {
             return;
         }
-        if (unreadCountMap != null && unreadCountMap.containsKey(conversationInfo.conversation)) {
-            unreadCountMap.put(conversationInfo.conversation, new UnreadCount());
-        }
         ChatManager.Instance().clearUnreadStatus(conversationInfo.conversation);
-        postUnreadCount();
+        loadUnreadCount();
     }
 
     private void postConversationInfo(ConversationInfo conversationInfo) {
@@ -271,12 +277,7 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
             return;
         }
         if (conversationInfoLiveData != null) {
-            UIUtils.postTaskSafely(() -> conversationInfoLiveData.setValue(conversationInfo));
-        }
-
-        if (unreadCountLiveData != null) {
-            unreadCountMap.put(conversationInfo.conversation, conversationInfo.unreadCount);
-            postUnreadCount();
+            conversationInfoLiveData.postValue(conversationInfo);
         }
     }
 
@@ -312,10 +313,8 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
             UIUtils.postTaskSafely(() -> settingUpdateLiveData.setValue(new Object()));
         }
 
-        // 会话同步
-        if (unreadCountLiveData != null) {
-            loadUnreadCount();
-        }
+        // 可能是会话同步
+        loadUnreadCount();
     }
 
     @Override
@@ -341,5 +340,14 @@ public class ConversationListViewModel extends ViewModel implements OnReceiveMes
     public void onClearMessage(Conversation conversation) {
         ConversationInfo conversationInfo = ChatManager.Instance().getConversation(conversation);
         postConversationInfo(conversationInfo);
+        loadUnreadCount();
+    }
+
+    @Override
+    public void onConversationRemove(Conversation conversation) {
+        if (conversationRemovedLiveData != null) {
+            conversationRemovedLiveData.setValue(conversation);
+        }
+        loadUnreadCount();
     }
 }
